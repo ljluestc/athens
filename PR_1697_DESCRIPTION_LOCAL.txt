@@ -1,0 +1,41 @@
+## What is the problem I am trying to address?
+Athens currently returns `404 Not Found` for certain module version requests that actually fail due to Go major-version compatibility rules (semver mismatch), not because the module/version is missing.
+
+Example:
+- Request: `GET /github.com/uber/h3-go/@v/v3.0.2.info`
+- Previous Athens behavior: `404 Not Found`
+- `proxy.golang.org` behavior: `410 Gone` with a descriptive semver error
+
+This makes troubleshooting harder because users see a misleading "not found" signal instead of the real compatibility error.
+
+## How is the fix applied?
+This PR aligns Athens behavior with the upstream proxy pattern for semver incompatibility cases:
+
+1. Added `KindGone` (`410`) in `pkg/errors/errors.go`.
+2. Updated `pkg/module/go_get_fetcher.go`:
+   - Added `isSemverError` detection for Go toolchain output containing both:
+     - `invalid version`
+     - `major version must be compatible`
+   - When matched during `go mod download -json`, return `errors.KindGone` instead of `errors.KindNotFound`.
+3. Updated `pkg/download/version_info.go`:
+   - For `.info` requests that surface `410`, include the descriptive semver message in the response body.
+
+## Tests and validation
+Added/updated tests:
+- `pkg/module/go_get_fetcher_test.go`: covers semver error detection/classification.
+- `pkg/download/handler_test.go`: verifies `.info` responds with `410` and includes semver guidance in body.
+
+Executed:
+- `go test ./pkg/module/...`
+- `go test ./pkg/download/...`
+- `go test ./pkg/errors/...`
+
+## Behavior before vs after
+- Semver-incompatible version request:
+  - Before: `404 Not Found`
+  - After: `410 Gone` + descriptive semver error text
+- Non-semver missing module/version:
+  - Remains `404 Not Found`
+
+## What GitHub issue(s) does this PR fix or close?
+Fixes #1697
