@@ -1,0 +1,102 @@
+Title: feat: add offline package synchronization CLI (export/import/delete)
+
+Closes #2117
+
+## Background
+In offline enterprise deployments, Athens cannot always fetch or sync modules over the network. Today, operators often need to manually copy files into storage backends, which is error-prone and operationally expensive.
+
+Issue #2117 requests official tooling for:
+1) package export to a single artifact,
+2) package import from that artifact,
+3) package cleanup/management operations.
+
+## What this PR delivers
+This PR introduces an official offline synchronization tool as a separate binary:
+
+- `cmd/offline-sync`
+
+### Supported operations
+1. `export`
+   - Exports package versions to a single `tar.gz` archive.
+   - Archive includes module/version metadata and all package artifacts (`.info`, `go.mod`, `source.zip`).
+   - Supports:
+     - explicit list via repeated `--package module@version`
+     - full storage export via backend catalog (when catalog is supported)
+
+2. `import`
+   - Imports a previously exported archive into Athens storage.
+   - Reconstructs package versions using storage `Save(...)`.
+
+3. `delete`
+   - Deletes specified package versions by repeated `--package module@version`.
+   - Supports `--ignore_missing` (default `true`) for safe bulk cleanup behavior.
+
+## Implementation details
+### New package: `pkg/offlinesync`
+Core logic extracted for reuse/testability:
+- `ParsePackageRef` / `ParsePackageRefs`
+- `ExportArchive`
+- `ImportArchive`
+- `DeletePackages`
+
+Archive format:
+- `manifest.json` with:
+  - `format_version`
+  - `created_at`
+  - `item_count`
+  - per-item module/version and blob paths
+- Binary/object entries under `objects/<index>/...`
+
+Current format version:
+- `athens-offline-sync/v1`
+
+### New command: `cmd/offline-sync/main.go`
+Uses existing Athens config and storage initialization flow:
+- loads config via `pkg/config`
+- initializes backend via existing `cmd/proxy/actions.GetStorage`
+
+## Docs
+Added user docs for offline sync usage:
+- `docs/content/configuration/offline-sync.md`
+- linked from `docs/content/configuration/_index.md`
+
+## Files changed
+- `cmd/offline-sync/main.go`
+- `pkg/offlinesync/sync.go`
+- `pkg/offlinesync/sync_test.go`
+- `docs/content/configuration/offline-sync.md`
+- `docs/content/configuration/_index.md`
+
+## Testing
+Executed locally:
+1. `gofmt -w` on new/updated Go files
+2. `go test -vet=off ./pkg/offlinesync -v`
+3. `go test -vet=off ./cmd/offline-sync -v`
+
+Results:
+- `pkg/offlinesync` tests pass:
+  - parse ref
+  - invalid ref
+  - export/import round-trip
+  - delete flow
+- `cmd/offline-sync` compiles (`[no test files]`)
+
+Note:
+- Running `go test` with default `vet` in this environment hit transient system resource limits (`vet: resource temporarily unavailable`), so targeted verification used `-vet=off`.
+
+## Risk / impact
+Risk level: Low to moderate
+- New functionality is additive (separate binary + package).
+- Existing proxy runtime behavior is unchanged.
+- Potential risk is handling very large archives in memory during import/export; acceptable for initial MVP and can be optimized in follow-up.
+
+## Follow-up opportunities
+Not in this PR (but aligned with issue request):
+- richer cleanup strategies (LRU/LFU/time-window) based on usage telemetry
+- incremental export (changed since timestamp)
+- optional checksum/signature validation for archives
+- streaming import optimization for large archives
+
+## Rollback
+- Revert this PR commits to remove `cmd/offline-sync` and `pkg/offlinesync`.
+- No migration needed because no schema or runtime-proxy behavior changes were introduced.
