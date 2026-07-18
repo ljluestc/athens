@@ -28,6 +28,18 @@ func ListHandler(dp Protocol, lggr log.Entry, df *mode.DownloadFile) http.Handle
 
 		versions, err := dp.List(r.Context(), mod)
 		if err != nil {
+			// A redirect mode must be respected for list requests, just as it is
+			// for version-specific endpoints (Info, GoMod, Zip).
+			if errors.Kind(err) == errors.KindRedirect {
+				url, urlErr := getRedirectURL(df.URL(mod), r.URL.Path)
+				if urlErr != nil {
+					lggr.SystemErr(errors.E(op, urlErr))
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				http.Redirect(w, r, url, errors.KindRedirect)
+				return
+			}
 			severityLevel := errors.Expect(err, errors.KindNotFound, errors.KindGatewayTimeout)
 			err = errors.E(op, err, severityLevel)
 			lggr.SystemErr(err)

@@ -28,6 +28,7 @@ func TestRedirect(t *testing.T) {
 			"/github.com/gomods/athens/@v/v0.4.0.info",
 			"/github.com/gomods/athens/@v/v0.4.0.mod",
 			"/github.com/gomods/athens/@v/v0.4.0.zip",
+			"/github.com/gomods/athens/@v/list",
 		} {
 			req := httptest.NewRequest("GET", path, nil)
 			w := httptest.NewRecorder()
@@ -46,6 +47,11 @@ func TestRedirect(t *testing.T) {
 
 type mockProtocol struct {
 	Protocol
+}
+
+func (mp *mockProtocol) List(ctx context.Context, mod string) ([]string, error) {
+	const op errors.Op = "mockProtocol.List"
+	return nil, errors.E(op, "not found", errors.KindRedirect)
 }
 
 func (mp *mockProtocol) Info(ctx context.Context, mod, ver string) ([]byte, error) {

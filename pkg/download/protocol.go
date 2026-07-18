@@ -85,6 +85,23 @@ func (p *protocol) List(ctx context.Context, mod string) ([]string, error) {
 	ctx, span := observ.StartSpan(ctx, op.String())
 	defer span.End()
 
+	// Honor the download mode for the list endpoint, just as the version-specific
+	// endpoints (Info, GoMod, Zip) do via processDownload.  Without this check,
+	// a module configured with mode=redirect or mode=async_redirect would
+	// silently return a 200 from local storage / VCS instead of redirecting the
+	// client to the configured upstream URL (issue #1959).
+	if p.df != nil {
+		switch p.df.Match(mod) {
+		case mode.Redirect:
+			return nil, errors.E(op, "redirect", errors.KindRedirect)
+		case mode.AsyncRedirect:
+			// For list requests there is no specific version to stash; the
+			// redirect tells the client which upstream to consult, and
+			// version-specific requests that follow will trigger async stashing.
+			return nil, errors.E(op, "async_redirect: module not found", errors.KindRedirect)
+		}
+	}
+
 	var strList, goList []string
 	var sErr, goErr error
 	var wg sync.WaitGroup

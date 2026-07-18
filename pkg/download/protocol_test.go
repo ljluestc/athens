@@ -181,6 +181,74 @@ func TestListMode(t *testing.T) {
 	}
 }
 
+func TestListRedirect(t *testing.T) {
+	ctx := t.Context()
+	strg, err := mem.NewStorage()
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name string
+		dfMode mode.Mode
+		pattern string
+		mod     string
+		wantRedirect bool
+	}{
+		{
+			name:         "global redirect mode redirects list",
+			dfMode:       mode.Redirect,
+			mod:          "github.com/test-org/mymod",
+			wantRedirect: true,
+		},
+		{
+			name:         "global async_redirect mode redirects list",
+			dfMode:       mode.AsyncRedirect,
+			mod:          "github.com/test-org/mymod",
+			wantRedirect: true,
+		},
+		{
+			name:         "per-path redirect mode redirects matching module",
+			dfMode:       mode.None,
+			pattern:      "github.com/test-org/*",
+			mod:          "github.com/test-org/mymod",
+			wantRedirect: true,
+		},
+		{
+			name:         "per-path redirect does not affect non-matching module",
+			dfMode:       mode.None,
+			pattern:      "github.com/test-org/*",
+			mod:          "github.com/other-org/mymod",
+			wantRedirect: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			df := &mode.DownloadFile{
+				Mode:        tc.dfMode,
+				DownloadURL: "https://example.com",
+			}
+			if tc.pattern != "" {
+				df.Paths = []*mode.DownloadPath{
+					{Pattern: tc.pattern, Mode: mode.Redirect, DownloadURL: "https://example.com"},
+				}
+			}
+			dp := &protocol{
+				df:          df,
+				storage:     strg,
+				lister:      &mockLister{},
+				networkMode: Strict,
+			}
+			_, err := dp.List(ctx, tc.mod)
+			if tc.wantRedirect {
+				require.Error(t, err)
+				assert.Equal(t, errors.KindRedirect, errors.Kind(err),
+					"expected KindRedirect for module %q with mode %q", tc.mod, tc.dfMode)
+			} else {
+				// non-matching module with mode=none just returns empty list
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestConcurrentLists(t *testing.T) {
 	dp := getDP(t)
 	ctx := t.Context()
